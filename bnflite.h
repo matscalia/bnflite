@@ -545,8 +545,8 @@ public:
     Rule& operator=(const Rule& rule)
         {   if (&rule == this) return *this;
             return this->operator=((const _Tie&)rule); }
-    template <class U> friend Rule& Bind(Rule& rule, U (*callback)(std::vector<U>&));
-    template <class U> Rule& operator[](U (*callback)(std::vector<U>&));
+    template <class U> friend Rule& Bind(Rule& rule, U (*callback)(std::string&, std::vector<U>&));
+    template <class U> Rule& operator[](U (*callback)(std::string&, std::vector<U>&));
 };
 
 /* friendly debug interface */
@@ -622,8 +622,8 @@ protected:
         {   if (callback) {
                 if (up.first) {
                     ((std::vector<U>*)up.first)->push_back(U(reinterpret_cast<
-                        U(*)(std::vector<U>&)>(callback)(*cntxU), cntxV[org], cntxV.back() - cntxV[org], name));
-                } else { reinterpret_cast<U(*)(std::vector<U>&)>(callback)(*cntxU); }
+                        U(*)(std::vector<U>&)>(callback)(name, *cntxU), cntxV[org], cntxV.back() - cntxV[org], name));
+                } else { reinterpret_cast<U(*)(std::vector<U>&)>(callback)(name, *cntxU); }
             } else if (up.first) {
                     ((std::vector<U>*)up.first)->push_back(U(cntxV[org], cntxV.back() - cntxV[org], name)); } }
     virtual void _stub_call(size_t org, const char* name)
@@ -637,7 +637,7 @@ public:
     int _get_result(U& u)
         {   if (cntxU && cntxU->size()) { u.data = cntxU->front().data; return 0; }
             else return eNull; }
-    template <class W> friend Rule& Bind(Rule& rule, W (*callback)(std::vector<W>&));
+    template <class W> friend Rule& Bind(Rule& rule, W (*callback)(std::string&, std::vector<W>&));
 };
 
 inline int _Base::_analyze(_Tie& root, const char* text, size_t* plen)
@@ -696,9 +696,9 @@ inline int Analyze(_Tie& root, const char* text, const char** pstop = 0, const c
 
 
 /* Create association between Rule and user's callback */
-template <class U> inline Rule& Bind(Rule& rule, U (*callback)(std::vector<U>&))
+template <class U> inline Rule& Bind(Rule& rule, U (*callback)(std::string&, std::vector<U>&))
     {   rule.callback = reinterpret_cast<void*>(callback); return rule; }
-template <class U> inline Rule& Rule::operator[](U (*callback)(std::vector<U>&)) // for C++11
+template <class U> inline Rule& Rule::operator[](U (*callback)(std::string&, std::vector<U>&)) // for C++11
     {   this->callback = reinterpret_cast<void*>(callback); return *this; }
 
 
