@@ -29,6 +29,7 @@
 #include <string.h>
 #include <string>
 #include <list>
+#include <type_traits>
 #include <vector>
 #include <bitset>
 #include <map>
@@ -924,11 +925,22 @@ template <typename Data = bool> struct Interface {
   }
 };
 
+template <template <typename...> class Template, typename T>
+struct is_instance_of : std::false_type {};
+
+template <template <typename...> class Template, typename... Args>
+struct is_instance_of<Template, Template<Args...>> : std::true_type {};
+
+template <template <typename...> class Template, typename T>
+inline constexpr bool is_instance_of_v = is_instance_of<Template, T>::value;
+
 /* Private parsing interface */
 template <class U>
 inline int _Analyze(_Tie &root, U &u, const char *(*pre_parse)(const char *),
                     void *exe_ctx) {
-  if (typeid(U) == typeid(Interface<>)) {
+  static_assert(is_instance_of_v<Interface, U>,
+                "u must be of type Interface<T>.");
+  if constexpr (std::is_same_v<Interface<>, U>) {
     _Base base = exe_ctx ? _Base(pre_parse, exe_ctx) : _Base(pre_parse);
     return base._analyze(root, u.text, &u.length);
   } else {
