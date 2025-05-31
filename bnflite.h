@@ -56,6 +56,9 @@ namespace bnf {
 // To parse any number (e.g. 532) it is just enough to call the
 // bnf::Analyze(Number, "532")
 
+template <typename U>
+using callback_t = U (*)(const char *rule, std::vector<U> &ctx, void *exe_ctx);
+
 enum Limits {
   maxCharNum = 256,
   maxLexemLength = 1024,
@@ -90,6 +93,8 @@ class _Base // base parser class
 {
 public:
   std::vector<const char *> cntxV; // public for internal extensions
+  void *exe_ctx;
+
 protected:
   friend class Token;
   friend class Lexem;
@@ -127,6 +132,10 @@ protected:
 
 public:
   int _analyze(_Tie &root, const char *text, size_t *);
+
+  _Base(const char *(*pre)(const char *), void *exe_ctx) : _Base(pre) {
+    this->exe_ctx = exe_ctx;
+  }
   _Base(const char *(*pre)(const char *))
       : level(1), pstop(0), zero_parse(pre ? pre : base_parser) {};
   virtual ~_Base() {};
@@ -730,9 +739,8 @@ public:
       return *this;
     return this->operator=((const _Tie &)rule);
   }
-  template <class U>
-  friend Rule &Bind(Rule &rule, U (*callback)(std::vector<U> &));
-  template <class U> Rule &operator[](U (*callback)(std::vector<U> &));
+  template <class U> friend Rule &Bind(Rule &rule, callback_t<U> callback);
+  template <class U> Rule &operator[](callback_t<U> callback);
 };
 
 /* friendly debug interface */
@@ -831,11 +839,11 @@ protected:
     if (callback) {
       if (up.first) {
         ((std::vector<U> *)up.first)
-            ->push_back(
-                U(reinterpret_cast<U (*)(std::vector<U> &)>(callback)(*cntxU),
-                  cntxV[org], cntxV.back() - cntxV[org], name));
+            ->push_back(U(reinterpret_cast<callback_t<U>>(callback)(
+                              name, *cntxU, exe_ctx),
+                          cntxV[org], cntxV.back() - cntxV[org], name));
       } else {
-        reinterpret_cast<U (*)(std::vector<U> &)>(callback)(*cntxU);
+        reinterpret_cast<callback_t<U>>(callback)(name, *cntxU, exe_ctx);
       }
     } else if (up.first) {
       ((std::vector<U> *)up.first)
@@ -849,6 +857,10 @@ protected:
   }
 
 public:
+  _Parser(const char *(*f)(const char *), std::vector<U> *v, void *exe_ctx)
+      : _Parser(f, v) {
+    this->exe_ctx = exe_ctx;
+  }
   _Parser(const char *(*f)(const char *), std::vector<U> *v)
       : _Base(f), cntxU(v), off(0) {};
   virtual ~_Parser() {};
@@ -859,8 +871,7 @@ public:
     } else
       return eNull;
   }
-  template <class W>
-  friend Rule &Bind(Rule &rule, W (*callback)(std::vector<W> &));
+  template <class W> friend Rule &Bind(Rule &rule, callback_t<W> callback);
 };
 
 inline int _Base::_analyze(_Tie &root, const char *text, size_t *plen) {
@@ -915,13 +926,14 @@ template <typename Data = bool> struct Interface {
 
 /* Private parsing interface */
 template <class U>
-inline int _Analyze(_Tie &root, U &u, const char *(*pre_parse)(const char *)) {
+inline int _Analyze(_Tie &root, U &u, const char *(*pre_parse)(const char *),
+                    void *exe_ctx) {
   if (typeid(U) == typeid(Interface<>)) {
-    _Base base(pre_parse);
+    _Base base = exe_ctx ? _Base(pre_parse, exe_ctx) : _Base(pre_parse);
     return base._analyze(root, u.text, &u.length);
   } else {
     std::vector<U> v;
-    _Parser<U> parser(pre_parse, &v);
+    _Parser<U> parser(pre_parse, &v, exe_ctx);
     return parser._analyze(root, u.text, &u.length) | parser._get_result(u);
   }
 }
@@ -929,31 +941,32 @@ inline int _Analyze(_Tie &root, U &u, const char *(*pre_parse)(const char *)) {
 /* Primary interface set to start parsing of text against constructed rules */
 template <class U>
 inline int Analyze(_Tie &root, const char *text, const char **pstop, U &u,
+                   void *exe_ctx = nullptr,
                    const char *(*pre_parse)(const char *) = 0) {
   u.text = text;
-  return _Analyze(root, u, pre_parse) | u._get_pstop(pstop);
+  return _Analyze(root, u, pre_parse, exe_ctx) | u._get_pstop(pstop);
 }
 template <class U>
-inline int Analyze(_Tie &root, const char *text, U &u,
+inline int Analyze(_Tie &root, const char *text, U &u, void *exe_ctx = nullptr,
                    const char *(*pre_parse)(const char *) = 0) {
   u.text = text;
-  return _Analyze(root, u, pre_parse) | u._get_pstop(0);
+  return _Analyze(root, u, pre_parse, exe_ctx) | u._get_pstop(0);
 }
-inline int Analyze(_Tie &root, const char *text, const char **pstop = 0,
+inline int Analyze(_Tie &root, const char *text, void *exe_ctx,
+                   const char **pstop = 0,
                    const char *(*pre_parse)(const char *) = 0) {
   Interface<> u;
   u.text = text;
-  return _Analyze(root, u, pre_parse) | u._get_pstop(pstop);
+  return _Analyze(root, u, pre_parse, exe_ctx) | u._get_pstop(pstop);
 }
 
 /* Create association between Rule and user's callback */
-template <class U>
-inline Rule &Bind(Rule &rule, U (*callback)(std::vector<U> &)) {
+template <class U> inline Rule &Bind(Rule &rule, callback_t<U> callback) {
   rule.callback = reinterpret_cast<void *>(callback);
   return rule;
 }
 template <class U>
-inline Rule &Rule::operator[](U (*callback)(std::vector<U> &)) // for C++11
+inline Rule &Rule::operator[](callback_t<U> callback) // for C++11
 {
   this->callback = reinterpret_cast<void *>(callback);
   return *this;
